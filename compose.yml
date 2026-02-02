@@ -1,0 +1,14 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: .docker/Dockerfile
+    ports:
+      - "8080:80"
+    environment:
+      APP_ENV: dev
+    volumes:
+      - .:/var/www/html
+      - keys:/keys
+volumes:
+  keys:
