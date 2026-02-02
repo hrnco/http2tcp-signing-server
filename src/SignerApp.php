@@ -38,10 +38,12 @@ final class SignerApp
         if ($_SERVER['REQUEST_METHOD'] === 'GET') {
             $payloadHexRaw = $_GET['payloadHex'] ?? '';
             $payloadBase64Raw = $_GET['payloadBase64'] ?? '';
+            $payloadAsciiRaw = $_GET['payloadAscii'] ?? '';
             $deviceIp = trim((string)($_GET['deviceIp'] ?? ''));
             $devicePort = (int)($_GET['devicePort'] ?? 0);
             $deviceId = trim((string)($_GET['deviceId'] ?? ''));
             $debug = ((string)($_GET['debug'] ?? '')) === '1';
+            $agentUrl = trim((string)($_GET['agentUrl'] ?? ''));
         } elseif ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $inputRaw = file_get_contents('php://input') ?: '';
             $input = json_decode($inputRaw, true);
@@ -51,10 +53,12 @@ final class SignerApp
             }
             $payloadHexRaw = $input['payloadHex'] ?? '';
             $payloadBase64Raw = $input['payloadBase64'] ?? '';
+            $payloadAsciiRaw = $input['payloadAscii'] ?? '';
             $deviceIp = trim((string)($input['deviceIp'] ?? ''));
             $devicePort = (int)($input['devicePort'] ?? 0);
             $deviceId = trim((string)($input['deviceId'] ?? ''));
             $debug = ((string)($input['debug'] ?? '')) === '1';
+            $agentUrl = trim((string)($input['agentUrl'] ?? ''));
         } else {
             $this->respondJson(405, ['error' => 'method_not_allowed']);
             return;
@@ -63,20 +67,36 @@ final class SignerApp
 
         $payloadHexList = $this->normalizeStringList($payloadHexRaw);
         $payloadBase64List = $this->normalizeStringList($payloadBase64Raw);
+        $payloadAsciiList = $this->normalizeStringList($payloadAsciiRaw);
 
-        if ($payloadHexList === [] && $payloadBase64List === []) {
+        if ($payloadHexList === [] && $payloadBase64List === [] && $payloadAsciiList === []) {
             $this->respondJson(400, ['error' => 'payload_required']);
             return;
         }
-        if ($payloadBase64List !== []) {
-            $this->respondJson(400, ['error' => 'payload_base64_not_supported']);
+        $payloadKinds = 0;
+        $payloadKinds += $payloadHexList !== [] ? 1 : 0;
+        $payloadKinds += $payloadBase64List !== [] ? 1 : 0;
+        $payloadKinds += $payloadAsciiList !== [] ? 1 : 0;
+        if ($payloadKinds > 1) {
+            $this->respondJson(400, ['error' => 'payload_conflict']);
             return;
         }
 
-        $payloadBase64List = $this->hexListToBase64List($payloadHexList);
-        if ($payloadBase64List === null) {
-            $this->respondJson(400, ['error' => 'invalid_payload_hex']);
-            return;
+        if ($payloadHexList !== []) {
+            $payloadBase64List = $this->hexListToBase64List($payloadHexList);
+            if ($payloadBase64List === null) {
+                $this->respondJson(400, ['error' => 'invalid_payload_hex']);
+                return;
+            }
+        } elseif ($payloadBase64List !== []) {
+            foreach ($payloadBase64List as $b64) {
+                if ($this->decodeBase64($b64) === null) {
+                    $this->respondJson(400, ['error' => 'invalid_payload_base64']);
+                    return;
+                }
+            }
+        } else {
+            $payloadBase64List = $this->asciiListToBase64List($payloadAsciiList);
         }
         if (!filter_var($deviceIp, FILTER_VALIDATE_IP)) {
             $this->respondJson(400, ['error' => 'invalid_device_ip']);
@@ -134,6 +154,7 @@ final class SignerApp
                 'nonce' => $nonce,
                 'sig_base64url' => $sig,
                 'params' => $params,
+                'agent_url' => $agentUrl,
             ]);
             return;
         }
@@ -162,13 +183,23 @@ final class SignerApp
         echo '<p>Server is running. You can use GET or POST on <code>/api/sign</code>.</p>';
         echo '<h2>Quick test</h2>';
         echo '<form method="get" action="/api/sign">';
-        echo '<label>payloadHex[0] <input name="payloadHex[]" size="40" value="48656c6c6f207072696e746572"></label><br>';
-        echo '<label>payloadHex[1] <input name="payloadHex[]" size="40" value="414243"></label><br>';
-        echo '<label>payloadHex[2] <input name="payloadHex[]" size="40" value="313233"></label><br>';
+        echo '<label>payloadAscii[0] <input name="payloadAscii[]" size="40" value="Hello"></label><br>';
+        echo '<label>payloadAscii[1] <input name="payloadAscii[]" size="40" value="World"></label><br>';
+        echo '<label>payloadAscii[2] <input name="payloadAscii[]" size="40" value=":)"></label><br>';
         echo '<label>deviceIp <input name="deviceIp" value="192.168.1.50"></label><br>';
         echo '<label>devicePort <input name="devicePort" value="9100"></label><br>';
         echo '<label>deviceId <input name="deviceId" value=""></label><br>';
-        echo '<label><input type="checkbox" name="debug" value="1" checked> debug</label><br>';
+        echo '<label><input type="checkbox" name="debug" value="1" checked id="debugToggle"> debug</label><br>';
+        echo '<div id="agentUrlRow">';
+        echo '<label>agentUrl <input name="agentUrl" size="40" value="http://localhost:34279/api/send"></label><br>';
+        echo '</div>';
+        echo '<script>';
+        echo 'const debugToggle = document.getElementById("debugToggle");';
+        echo 'const agentUrlRow = document.getElementById("agentUrlRow");';
+        echo 'const syncAgentRow = () => { agentUrlRow.style.display = debugToggle.checked ? "block" : "none"; };';
+        echo 'debugToggle.addEventListener("change", syncAgentRow);';
+        echo 'syncAgentRow();';
+        echo '</script>';
         echo '<button type="submit">Sign</button>';
         echo '</form>';
         echo '<h2>cURL</h2>';
@@ -186,6 +217,31 @@ final class SignerApp
         echo '<hr>';
         echo '<h2>Details</h2>';
         echo '<pre>' . htmlspecialchars(json_encode($details, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES), ENT_QUOTES, 'UTF-8') . '</pre>';
+
+        $agentUrl = trim((string)($details['agent_url'] ?? ''));
+        if ($agentUrl !== '') {
+            $safeAgentUrl = htmlspecialchars($agentUrl, ENT_QUOTES, 'UTF-8');
+            $safeParams = htmlspecialchars($response, ENT_QUOTES, 'UTF-8');
+            echo '<hr>';
+            echo '<h2>Agent Request (browser)</h2>';
+            echo '<p>URL: <code>' . $safeAgentUrl . '</code></p>';
+            echo '<h3>Request</h3>';
+            echo '<pre id="agentRequest">POST ' . $safeAgentUrl . "\n" . 'Content-Type: application/x-www-form-urlencoded' . "\n\n" . $safeParams . '</pre>';
+            echo '<h3>Response</h3>';
+            echo '<pre id="agentResponse">Loading...</pre>';
+            echo '<script>';
+            echo 'const agentUrl = ' . json_encode($agentUrl) . ';';
+            echo 'const agentBody = ' . json_encode($response) . ';';
+            echo 'fetch(agentUrl, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: agentBody, credentials: "include" })';
+            echo '.then(async (r) => {';
+            echo '  const text = await r.text();';
+            echo '  const out = "HTTP " + r.status + " " + r.statusText + "\\n\\n" + text;';
+            echo '  document.getElementById("agentResponse").textContent = out;';
+            echo '})';
+            echo '.catch((err) => { document.getElementById("agentResponse").textContent = String(err); });';
+            echo '</script>';
+        }
+
         echo '</body></html>';
     }
 
@@ -228,6 +284,16 @@ final class SignerApp
                 return null;
             }
             $out[] = base64_encode($bytes);
+        }
+        return $out;
+    }
+
+    /** @return list<string> */
+    private function asciiListToBase64List(array $asciiList): array
+    {
+        $out = [];
+        foreach ($asciiList as $ascii) {
+            $out[] = base64_encode($ascii);
         }
         return $out;
     }
