@@ -1,8 +1,9 @@
 services:
   app:
-    build:
-      context: .
-      dockerfile: .docker/Dockerfile
+    image: ghcr.io/hrnco/http2tcp-signing-server:latest
+#    build:
+#      context: .
+#      dockerfile: .docker/Dockerfile
     ports:
       - "8080:80"
     environment:

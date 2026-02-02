@@ -23,7 +23,9 @@ Cloud/Web App -> Signing Server -> Browser (user) -> Local Agent -> TCP Device (
 ## Minimal API snippets (multi-language)
 Each snippet only obtains the signed `params` string; the actual call to the local agent happens in the Browser Embedding step.
 
-**cURL**
+<details>
+<summary><strong>cURL</strong></summary>
+
 ```bash
 # Get signed params from the server; pass this string to the browser
 params=$(curl -s -X POST "http://http2tcp-server/api/sign" \
@@ -32,21 +34,40 @@ params=$(curl -s -X POST "http://http2tcp-server/api/sign" \
 # echo "$params"
 ```
 
-**PHP**
-```php
-// Server base URL inside the local Docker network
-$http2tcpServer = new Http2TcpServer('http://http2tcp-server/api');
+</details>
 
-// Required: device IP/port + hex-encoded TCP payload for the target LAN device
-$requestParams = $http2tcpServer->generateSignedRequestParams(
-    payloadHex: 'STRING_V_HEXA_PRE_TCP',
-    deviceIp: '192.168.1.50',
-    devicePort: 9100
-);
-// $requestParams is the serialized string: instructions=...&sig=...&kid=...&exp=...&nonce=...
+<details>
+<summary><strong>PHP</strong></summary>
+
+```php
+// Raw HTTP request; no client class required.
+$payload = json_encode([
+    'payloadHex' => 'STRING_V_HEXA_PRE_TCP',
+    'deviceIp' => '192.168.1.50',
+    'devicePort' => 9100,
+], JSON_THROW_ON_ERROR);
+
+$ch = curl_init('http://http2tcp-server/api/sign');
+curl_setopt_array($ch, [
+    CURLOPT_POST => true,
+    CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
+    CURLOPT_POSTFIELDS => $payload,
+    CURLOPT_RETURNTRANSFER => true,
+    CURLOPT_TIMEOUT => 5,
+]);
+$params = curl_exec($ch);
+if ($params === false) {
+    throw new RuntimeException(curl_error($ch));
+}
+curl_close($ch);
+// $params is the serialized string: instructions=...&sig=...&kid=...&exp=...&nonce=...
 ```
 
-**Python**
+</details>
+
+<details>
+<summary><strong>Python</strong></summary>
+
 ```python
 import requests
 
@@ -63,7 +84,11 @@ resp.raise_for_status()
 params = resp.text  # serialized params; hand off to the browser/embed step
 ```
 
-**JavaScript (Node/Browser)**
+</details>
+
+<details>
+<summary><strong>JavaScript (Node/Browser)</strong></summary>
+
 ```js
 const params = await fetch("http://http2tcp-server/api/sign", {
   method: "POST",
@@ -74,10 +99,9 @@ const params = await fetch("http://http2tcp-server/api/sign", {
     devicePort: 9100,
   }),
 }).then((r) => r.text());
-
-// Hand off `params` to the browser; in-browser call goes to the local agent:
-// fetch(`http://localhost:34279/api/send`, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: params })
 ```
+
+</details>
 
 ### Returned value
 - A serialized parameter string ready to append or POST, e.g. `instructions=...&sig=...&kid=...&exp=...&nonce=...`.
