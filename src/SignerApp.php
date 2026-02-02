@@ -155,6 +155,14 @@ final class SignerApp
                 'sig_base64url' => $sig,
                 'params' => $params,
                 'agent_url' => $agentUrl,
+                'payload_type' => $payloadHexList !== [] ? 'hex' : ($payloadBase64Raw !== '' ? 'base64' : 'ascii'),
+                'payload_hex' => $payloadHexList,
+                'payload_ascii' => $payloadAsciiList,
+                'payload_base64' => $payloadBase64List,
+                'device_ip' => $deviceIp,
+                'device_port' => $devicePort,
+                'device_id' => $deviceId,
+                'debug' => $debug ? '1' : '0',
             ]);
             return;
         }
@@ -182,37 +190,54 @@ final class SignerApp
         echo '<h1>http2tcp-signing-server</h1>';
         echo '<p>Server is running. You can use GET or POST on <code>/api/sign</code>.</p>';
         echo '<h2>Quick test</h2>';
+        $payloadType = (string)($_GET['payloadType'] ?? 'ascii');
+        $payloadAscii = $this->normalizeStringList($_GET['payloadAscii'] ?? []);
+        $payloadHex = $this->normalizeStringList($_GET['payloadHex'] ?? []);
+        if ($payloadAscii === []) {
+            $payloadAscii = ['Hello', 'World', ':)'];
+        }
+        if ($payloadHex === []) {
+            $payloadHex = ['48656c6c6f207072696e746572', '414243', '313233'];
+        }
+        $deviceIp = (string)($_GET['deviceIp'] ?? '192.168.1.50');
+        $devicePort = (string)($_GET['devicePort'] ?? '9100');
+        $deviceId = (string)($_GET['deviceId'] ?? '');
+        $debugChecked = (string)($_GET['debug'] ?? '1');
+        $agentUrl = (string)($_GET['agentUrl'] ?? 'http://localhost:34279/api/send');
+
         echo '<form method="get" action="/api/sign">';
         echo '<label>payloadType ';
         echo '<select name="payloadType" id="payloadTypeSelect">';
-        echo '<option value="ascii" selected>ascii</option>';
-        echo '<option value="hex">hex</option>';
+        echo '<option value="ascii"' . ($payloadType !== 'hex' ? ' selected' : '') . '>ascii</option>';
+        echo '<option value="hex"' . ($payloadType === 'hex' ? ' selected' : '') . '>hex</option>';
         echo '</select>';
         echo '</label><br>';
         echo '<div id="payloadAsciiFields">';
         echo '<div id="payloadAsciiRows">';
-        echo '<div><label>payloadAscii[0] <input name="payloadAscii[]" size="40" value="Hello"></label></div>';
-        echo '<div><label>payloadAscii[1] <input name="payloadAscii[]" size="40" value="World"></label></div>';
-        echo '<div><label>payloadAscii[2] <input name="payloadAscii[]" size="40" value=":)"></label></div>';
+        foreach ($payloadAscii as $i => $value) {
+            $safeValue = htmlspecialchars($value, ENT_QUOTES, 'UTF-8');
+            echo '<div><label>payloadAscii[' . $i . '] <input name="payloadAscii[]" size="40" value="' . $safeValue . '"></label></div>';
+        }
         echo '</div>';
         echo '<button type="button" id="addAsciiRow">+ add ascii</button> ';
         echo '<button type="button" id="removeAsciiRow">- remove ascii</button><br>';
         echo '</div>';
         echo '<div id="payloadHexFields">';
         echo '<div id="payloadHexRows">';
-        echo '<div><label>payloadHex[0] <input name="payloadHex[]" size="40" value="48656c6c6f207072696e746572"></label></div>';
-        echo '<div><label>payloadHex[1] <input name="payloadHex[]" size="40" value="414243"></label></div>';
-        echo '<div><label>payloadHex[2] <input name="payloadHex[]" size="40" value="313233"></label></div>';
+        foreach ($payloadHex as $i => $value) {
+            $safeValue = htmlspecialchars($value, ENT_QUOTES, 'UTF-8');
+            echo '<div><label>payloadHex[' . $i . '] <input name="payloadHex[]" size="40" value="' . $safeValue . '"></label></div>';
+        }
         echo '</div>';
         echo '<button type="button" id="addHexRow">+ add hex</button> ';
         echo '<button type="button" id="removeHexRow">- remove hex</button><br>';
         echo '</div>';
-        echo '<label>deviceIp <input name="deviceIp" value="192.168.1.50"></label><br>';
-        echo '<label>devicePort <input name="devicePort" value="9100"></label><br>';
-        echo '<label>deviceId <input name="deviceId" value=""></label><br>';
-        echo '<label><input type="checkbox" name="debug" value="1" checked id="debugToggle"> debug</label><br>';
+        echo '<label>deviceIp <input name="deviceIp" value="' . htmlspecialchars($deviceIp, ENT_QUOTES, 'UTF-8') . '"></label><br>';
+        echo '<label>devicePort <input name="devicePort" value="' . htmlspecialchars($devicePort, ENT_QUOTES, 'UTF-8') . '"></label><br>';
+        echo '<label>deviceId <input name="deviceId" value="' . htmlspecialchars($deviceId, ENT_QUOTES, 'UTF-8') . '"></label><br>';
+        echo '<label><input type="checkbox" name="debug" value="1"' . ($debugChecked !== '0' ? ' checked' : '') . ' id="debugToggle"> debug</label><br>';
         echo '<div id="agentUrlRow">';
-        echo '<label>agentUrl <input name="agentUrl" size="40" value="http://localhost:34279/api/send"></label><br>';
+        echo '<label>agentUrl <input name="agentUrl" size="40" value="' . htmlspecialchars($agentUrl, ENT_QUOTES, 'UTF-8') . '"></label><br>';
         echo '</div>';
         echo '<script>';
         echo 'const debugToggle = document.getElementById("debugToggle");';
@@ -279,9 +304,28 @@ final class SignerApp
 
         $agentUrl = trim((string)($details['agent_url'] ?? ''));
         if ($agentUrl !== '') {
+            $editParams = [
+                'payloadType' => (string)($details['payload_type'] ?? 'ascii'),
+                'deviceIp' => (string)($details['device_ip'] ?? ''),
+                'devicePort' => (string)($details['device_port'] ?? ''),
+                'deviceId' => (string)($details['device_id'] ?? ''),
+                'debug' => (string)($details['debug'] ?? '1'),
+                'agentUrl' => (string)($details['agent_url'] ?? ''),
+            ];
+            $payloadType = (string)($details['payload_type'] ?? 'ascii');
+            if ($payloadType === 'hex') {
+                $editParams['payloadHex'] = $details['payload_hex'] ?? [];
+            } elseif ($payloadType === 'ascii') {
+                $editParams['payloadAscii'] = $details['payload_ascii'] ?? [];
+            }
+            $editQuery = http_build_query($editParams);
+            $editUrl = '/?' . $editQuery;
+            $safeEditUrl = htmlspecialchars($editUrl, ENT_QUOTES, 'UTF-8');
+
             $safeAgentUrl = htmlspecialchars($agentUrl, ENT_QUOTES, 'UTF-8');
             $safeParams = htmlspecialchars($response, ENT_QUOTES, 'UTF-8');
             echo '<hr>';
+            echo '<p><a href="' . $safeEditUrl . '">Edit form</a></p>';
             echo '<h2>Agent Request (browser)</h2>';
             echo '<p>URL: <code>' . $safeAgentUrl . '</code></p>';
             echo '<h3>Request</h3>';
