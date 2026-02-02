@@ -36,8 +36,8 @@ final class SignerApp
 
         $debug = false;
         if ($_SERVER['REQUEST_METHOD'] === 'GET') {
-            $payloadHex = trim((string)($_GET['payloadHex'] ?? ''));
-            $payloadBase64 = trim((string)($_GET['payloadBase64'] ?? ''));
+            $payloadHexRaw = $_GET['payloadHex'] ?? '';
+            $payloadBase64Raw = $_GET['payloadBase64'] ?? '';
             $deviceIp = trim((string)($_GET['deviceIp'] ?? ''));
             $devicePort = (int)($_GET['devicePort'] ?? 0);
             $deviceId = trim((string)($_GET['deviceId'] ?? ''));
@@ -49,8 +49,8 @@ final class SignerApp
                 $this->respondJson(400, ['error' => 'invalid_json']);
                 return;
             }
-            $payloadHex = trim((string)($input['payloadHex'] ?? ''));
-            $payloadBase64 = trim((string)($input['payloadBase64'] ?? ''));
+            $payloadHexRaw = $input['payloadHex'] ?? '';
+            $payloadBase64Raw = $input['payloadBase64'] ?? '';
             $deviceIp = trim((string)($input['deviceIp'] ?? ''));
             $devicePort = (int)($input['devicePort'] ?? 0);
             $deviceId = trim((string)($input['deviceId'] ?? ''));
@@ -61,20 +61,21 @@ final class SignerApp
         }
         $debug = $debug && $this->appEnv === 'dev';
 
-        if ($payloadHex === '' && $payloadBase64 === '') {
+        $payloadHexList = $this->normalizeStringList($payloadHexRaw);
+        $payloadBase64List = $this->normalizeStringList($payloadBase64Raw);
+
+        if ($payloadHexList === [] && $payloadBase64List === []) {
             $this->respondJson(400, ['error' => 'payload_required']);
             return;
         }
-        if ($payloadHex !== '' && $payloadBase64 !== '') {
-            $this->respondJson(400, ['error' => 'payload_conflict']);
+        if ($payloadBase64List !== []) {
+            $this->respondJson(400, ['error' => 'payload_base64_not_supported']);
             return;
         }
-        if ($payloadHex !== '' && !ctype_xdigit($payloadHex)) {
+
+        $payloadBase64List = $this->hexListToBase64List($payloadHexList);
+        if ($payloadBase64List === null) {
             $this->respondJson(400, ['error' => 'invalid_payload_hex']);
-            return;
-        }
-        if ($payloadBase64 !== '' && $this->decodeBase64($payloadBase64) === null) {
-            $this->respondJson(400, ['error' => 'invalid_payload_base64']);
             return;
         }
         if (!filter_var($deviceIp, FILTER_VALIDATE_IP)) {
@@ -100,11 +101,9 @@ final class SignerApp
             'deviceIp' => $deviceIp,
             'devicePort' => $devicePort,
         ];
-        if ($payloadHex !== '') {
-            $instructionsPayload['payloadHex'] = $payloadHex;
-        } else {
-            $instructionsPayload['payloadBase64'] = $payloadBase64;
-        }
+        $instructionsPayload['payloadBase64'] = count($payloadBase64List) === 1
+            ? $payloadBase64List[0]
+            : $payloadBase64List;
         if ($deviceId !== '') {
             $instructionsPayload['deviceId'] = $deviceId;
         }
@@ -163,7 +162,9 @@ final class SignerApp
         echo '<p>Server is running. You can use GET or POST on <code>/api/sign</code>.</p>';
         echo '<h2>Quick test</h2>';
         echo '<form method="get" action="/api/sign">';
-        echo '<label>payloadHex <input name="payloadHex" size="40" value="48656c6c6f207072696e746572"></label><br>';
+        echo '<label>payloadHex[0] <input name="payloadHex[]" size="40" value="48656c6c6f207072696e746572"></label><br>';
+        echo '<label>payloadHex[1] <input name="payloadHex[]" size="40" value="414243"></label><br>';
+        echo '<label>payloadHex[2] <input name="payloadHex[]" size="40" value="313233"></label><br>';
         echo '<label>deviceIp <input name="deviceIp" value="192.168.1.50"></label><br>';
         echo '<label>devicePort <input name="devicePort" value="9100"></label><br>';
         echo '<label>deviceId <input name="deviceId" value=""></label><br>';
@@ -173,7 +174,7 @@ final class SignerApp
         echo '<h2>cURL</h2>';
         echo '<pre>curl -s -X POST "http://localhost:8080/api/sign" \\' . "\n";
         echo '  -H "Content-Type: application/json" \\' . "\n";
-        echo '  -d \'{"payloadHex":"48656c6c6f207072696e746572","deviceIp":"192.168.1.50","devicePort":9100}\'</pre>';
+        echo '  -d \'{"payloadHex":["48656c6c6f207072696e746572","414243","313233"],"deviceIp":"192.168.1.50","devicePort":9100}\'</pre>';
         echo '</body></html>';
     }
 
@@ -193,6 +194,42 @@ final class SignerApp
         http_response_code($status);
         header('Content-Type: application/json');
         echo json_encode($payload);
+    }
+
+    /** @return list<string> */
+    private function normalizeStringList(mixed $value): array
+    {
+        if (is_array($value)) {
+            $out = [];
+            foreach ($value as $item) {
+                $item = trim((string)$item);
+                if ($item !== '') {
+                    $out[] = $item;
+                }
+            }
+            return $out;
+        }
+
+        $value = trim((string)$value);
+        return $value === '' ? [] : [$value];
+    }
+
+    /** @return list<string>|null */
+    private function hexListToBase64List(array $hexList): ?array
+    {
+        $out = [];
+        foreach ($hexList as $hex) {
+            $hex = trim($hex);
+            if ($hex === '' || strlen($hex) % 2 !== 0 || !ctype_xdigit($hex)) {
+                return null;
+            }
+            $bytes = hex2bin($hex);
+            if ($bytes === false) {
+                return null;
+            }
+            $out[] = base64_encode($bytes);
+        }
+        return $out;
     }
 
     private function loadEnv(string $path): array

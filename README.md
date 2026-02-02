@@ -7,13 +7,13 @@ Cloud/Web App -> Signing Server -> Browser (user) -> Local Agent -> TCP Device (
 ```
 
 ## Core Idea
-- The server receives an app-level instruction (e.g., TCP payload in hex).
+- The server receives app-level instructions (one or more TCP payloads in hex).
 - It wraps it with metadata (nonce, key id), signs it with Ed25519, and emits URL parameters.
 - The browser embeds those parameters into a URL and calls the local agent. The agent verifies the signature and performs the TCP request. Trust mode is TOFU: the first valid key is paired, and the agent rejects all others.
 
 ## Language-Agnostic Interface (curl examples)
 - Works purely over HTTP API; client language is irrelevant.
-- **Input to server:** device IP, device port, TCP payload in hex. The server resolves the signing key internally (default or device-specific by id).
+- **Input to server:** device IP, device port, TCP payloads in hex (array). The server resolves the signing key internally (default or device-specific by id).
 - **Output from server:** serialized parameters `instructions`, `sig`, `kid`, `exp`, `nonce`.
 - **Flow:**
   1) call the server (`http://http2tcp-server/api/sign`) to get signed params,
@@ -30,7 +30,7 @@ Each snippet only obtains the signed `params` string; the actual call to the loc
 # Get signed params from the server; pass this string to the browser
 params=$(curl -s -X POST "http://http2tcp-server/api/sign" \
   -H "Content-Type: application/json" \
-  -d '{"payloadHex":"STRING_V_HEXA_PRE_TCP","deviceIp":"192.168.1.50","devicePort":9100}')
+  -d '{"payloadHex":["STRING_IN_HEXA_PRE_TCP","STRING_IN_HEXA_PRE_TCP2","STRING_IN_HEXA_PRE_TCP3"],"deviceIp":"192.168.1.50","devicePort":9100}')
 # echo "$params"
 ```
 
@@ -42,7 +42,11 @@ params=$(curl -s -X POST "http://http2tcp-server/api/sign" \
 ```php
 // Raw HTTP request; no client class required.
 $payload = json_encode([
-    'payloadHex' => 'STRING_V_HEXA_PRE_TCP',
+    'payloadHex' => [
+        'STRING_IN_HEXA_PRE_TCP',
+        'STRING_IN_HEXA_PRE_TCP2',
+        'STRING_IN_HEXA_PRE_TCP3',
+    ],
     'deviceIp' => '192.168.1.50',
     'devicePort' => 9100,
 ], JSON_THROW_ON_ERROR);
@@ -74,7 +78,11 @@ import requests
 resp = requests.post(
     "http://http2tcp-server/api/sign",
     json={
-        "payloadHex": "STRING_V_HEXA_PRE_TCP",
+        "payloadHex": [
+            "STRING_IN_HEXA_PRE_TCP",
+            "STRING_IN_HEXA_PRE_TCP2",
+            "STRING_IN_HEXA_PRE_TCP3",
+        ],
         "deviceIp": "192.168.1.50",
         "devicePort": 9100,
     },
@@ -94,7 +102,11 @@ const params = await fetch("http://http2tcp-server/api/sign", {
   method: "POST",
   headers: { "Content-Type": "application/json" },
   body: JSON.stringify({
-    payloadHex: "STRING_V_HEXA_PRE_TCP",
+    payloadHex: [
+      "STRING_IN_HEXA_PRE_TCP",
+      "STRING_IN_HEXA_PRE_TCP2",
+      "STRING_IN_HEXA_PRE_TCP3",
+    ],
     deviceIp: "192.168.1.50",
     devicePort: 9100,
   }),
@@ -105,7 +117,7 @@ const params = await fetch("http://http2tcp-server/api/sign", {
 
 ### Returned value
 - A serialized parameter string ready to append or POST, e.g. `instructions=...&sig=...&kid=...&exp=...&nonce=...`.
-- Includes: encoded instructions (payload hex + device IP/port), signature, key id (resolved server-side, default if no device-specific key applies), expiration/nonce to prevent replay.
+- Includes: encoded instructions (payload hex array + device IP/port), signature, key id (resolved server-side, default if no device-specific key applies), expiration/nonce to prevent replay.
 
 ## Browser Embedding (generic JS)
 ```html
