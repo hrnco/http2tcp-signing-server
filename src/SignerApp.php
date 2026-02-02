@@ -11,6 +11,8 @@ final class SignerApp
     /** @var list<string> */
     private array $defaultPayloadHex;
     private string $defaultPayloadType;
+    private string $defaultDeviceIp;
+    private string $defaultDevicePort;
 
     public function __construct(string $envPath)
     {
@@ -24,6 +26,8 @@ final class SignerApp
         $this->defaultPayloadHex = $this->splitEnvList($defaultPayloadHexRaw);
         $defaultPayloadTypeRaw = strtolower(trim((string)$this->getEnvValue($env, 'TEST_DEFAULT_PAYLOAD_TYPE', 'ascii')));
         $this->defaultPayloadType = $defaultPayloadTypeRaw === 'hex' ? 'hex' : 'ascii';
+        $this->defaultDeviceIp = trim((string)$this->getEnvValue($env, 'TEST_DEFAULT_DEVICE_IP', '192.168.1.50'));
+        $this->defaultDevicePort = trim((string)$this->getEnvValue($env, 'TEST_DEFAULT_DEVICE_PORT', '9100'));
     }
 
     public function handle(): void
@@ -218,8 +222,8 @@ final class SignerApp
                 ? $this->defaultPayloadHex
                 : ['48656c6c6f207072696e746572', '414243', '313233'];
         }
-        $deviceIp = (string)($_GET['deviceIp'] ?? '192.168.1.50');
-        $devicePort = (string)($_GET['devicePort'] ?? '9100');
+        $deviceIp = (string)($_GET['deviceIp'] ?? $this->defaultDeviceIp);
+        $devicePort = (string)($_GET['devicePort'] ?? $this->defaultDevicePort);
         $deviceId = (string)($_GET['deviceId'] ?? '');
         $debugChecked = (string)($_GET['debug'] ?? '1');
         $agentUrl = (string)($_GET['agentUrl'] ?? 'http://localhost:34279/api/send');
