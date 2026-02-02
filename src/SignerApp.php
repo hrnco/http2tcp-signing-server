@@ -286,10 +286,6 @@ final class SignerApp
         echo '</script>';
         echo '<button type="submit">Sign</button>';
         echo '</form>';
-        echo '<h2>cURL</h2>';
-        echo '<pre>curl -s -X POST "http://localhost:8080/api/sign" \\' . "\n";
-        echo '  -H "Content-Type: application/json" \\' . "\n";
-        echo '  -d \'{"payloadHex":["48656c6c6f207072696e746572","414243","313233"],"deviceIp":"192.168.1.50","devicePort":9100}\'</pre>';
         echo '</body></html>';
     }
 
