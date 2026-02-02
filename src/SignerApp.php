@@ -6,6 +6,11 @@ final class SignerApp
     private string $keysDir;
     private int $ttlSeconds;
     private string $appEnv;
+    /** @var list<string> */
+    private array $defaultPayloadAscii;
+    /** @var list<string> */
+    private array $defaultPayloadHex;
+    private string $defaultPayloadType;
 
     public function __construct(string $envPath)
     {
@@ -13,6 +18,12 @@ final class SignerApp
         $this->keysDir = rtrim($this->getEnvValue($env, 'KEYS_DIR', '/keys'), '/');
         $this->ttlSeconds = (int)$this->getEnvValue($env, 'TTL_SECONDS', 300);
         $this->appEnv = strtolower((string)$this->getEnvValue($env, 'APP_ENV', 'prod'));
+        $defaultPayloadAsciiRaw = (string)$this->getEnvValue($env, 'TEST_DEFAULT_PAYLOAD_ASCII', '');
+        $this->defaultPayloadAscii = $this->splitEnvList($defaultPayloadAsciiRaw);
+        $defaultPayloadHexRaw = (string)$this->getEnvValue($env, 'TEST_DEFAULT_PAYLOAD_HEX', '');
+        $this->defaultPayloadHex = $this->splitEnvList($defaultPayloadHexRaw);
+        $defaultPayloadTypeRaw = strtolower(trim((string)$this->getEnvValue($env, 'TEST_DEFAULT_PAYLOAD_TYPE', 'ascii')));
+        $this->defaultPayloadType = $defaultPayloadTypeRaw === 'hex' ? 'hex' : 'ascii';
     }
 
     public function handle(): void
@@ -190,14 +201,22 @@ final class SignerApp
         echo '<h1>http2tcp-signing-server</h1>';
         echo '<p>Server is running. You can use GET or POST on <code>/api/sign</code>.</p>';
         echo '<h2>Quick test</h2>';
-        $payloadType = (string)($_GET['payloadType'] ?? 'ascii');
+        $payloadType = trim((string)($_GET['payloadType'] ?? ''));
+        if ($payloadType === '') {
+            $payloadType = $this->defaultPayloadType;
+        }
+        $payloadType = $payloadType === 'hex' ? 'hex' : 'ascii';
         $payloadAscii = $this->normalizeStringList($_GET['payloadAscii'] ?? []);
         $payloadHex = $this->normalizeStringList($_GET['payloadHex'] ?? []);
         if ($payloadAscii === []) {
-            $payloadAscii = ['Hello', 'World', ':)'];
+            $payloadAscii = $this->defaultPayloadAscii !== []
+                ? $this->defaultPayloadAscii
+                : ['Hello', 'World', ':)'];
         }
         if ($payloadHex === []) {
-            $payloadHex = ['48656c6c6f207072696e746572', '414243', '313233'];
+            $payloadHex = $this->defaultPayloadHex !== []
+                ? $this->defaultPayloadHex
+                : ['48656c6c6f207072696e746572', '414243', '313233'];
         }
         $deviceIp = (string)($_GET['deviceIp'] ?? '192.168.1.50');
         $devicePort = (string)($_GET['devicePort'] ?? '9100');
@@ -370,6 +389,23 @@ final class SignerApp
 
         $value = trim((string)$value);
         return $value === '' ? [] : [$value];
+    }
+
+    /** @return list<string> */
+    private function splitEnvList(string $value): array
+    {
+        $value = trim($value);
+        if ($value === '') {
+            return [];
+        }
+        $parts = array_map('trim', explode('|', $value));
+        $out = [];
+        foreach ($parts as $part) {
+            if ($part !== '') {
+                $out[] = $part;
+            }
+        }
+        return $out;
     }
 
     /** @return list<string>|null */
