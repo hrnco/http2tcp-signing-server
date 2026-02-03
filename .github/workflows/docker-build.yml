@@ -13,12 +13,13 @@ env:
   APP_VERSION: 1
 
 jobs:
-
   docker:
     runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v4
+
+      - uses: docker/setup-qemu-action@v3
 
       - uses: docker/setup-buildx-action@v3
 
@@ -33,6 +34,7 @@ jobs:
           context: .
           file: .docker/Dockerfile
           push: true
+          platforms: linux/amd64,linux/arm64
           tags: |
             ghcr.io/${{ github.repository }}:latest
             ghcr.io/${{ github.repository }}:${{ env.APP_VERSION }}.${{ github.run_number }}
