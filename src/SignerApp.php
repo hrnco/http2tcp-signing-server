@@ -222,8 +222,14 @@ final class SignerApp
                 ? $this->defaultPayloadHex
                 : ['48656c6c6f207072696e746572', '414243', '313233'];
         }
-        $deviceIp = (string)($_GET['deviceIp'] ?? $this->defaultDeviceIp);
-        $devicePort = (string)($_GET['devicePort'] ?? $this->defaultDevicePort);
+        $deviceIp = trim((string)($_GET['deviceIp'] ?? ''));
+        if ($deviceIp === '') {
+            $deviceIp = $this->defaultDeviceIp;
+        }
+        $devicePort = trim((string)($_GET['devicePort'] ?? ''));
+        if ($devicePort === '') {
+            $devicePort = $this->defaultDevicePort;
+        }
         $deviceId = (string)($_GET['deviceId'] ?? '');
         $debugChecked = (string)($_GET['debug'] ?? '1');
         $agentUrl = (string)($_GET['agentUrl'] ?? 'http://localhost:34279/api/send');
