@@ -1,4 +1,4 @@
-FROM php:8.4-apache
+FROM php:8.4-apache-trixie
 
 # Enable Apache modules commonly needed for PHP apps.
 RUN a2enmod rewrite headers
