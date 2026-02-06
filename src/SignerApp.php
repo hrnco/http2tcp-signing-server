@@ -59,6 +59,8 @@ final class SignerApp
             $deviceId = trim((string)($_GET['deviceId'] ?? ''));
             $debug = ((string)($_GET['debug'] ?? '')) === '1';
             $agentUrl = trim((string)($_GET['agentUrl'] ?? ''));
+            $signatureMetadataRaw = $_GET['signatureMetadata'] ?? ($_GET['signature_metadata'] ?? null);
+            $orderIdMetadataTest = trim((string)($_GET['order_id_metadata_test'] ?? ''));
         } elseif ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $inputRaw = file_get_contents('php://input') ?: '';
             $input = json_decode($inputRaw, true);
@@ -74,6 +76,8 @@ final class SignerApp
             $deviceId = trim((string)($input['deviceId'] ?? ''));
             $debug = ((string)($input['debug'] ?? '')) === '1';
             $agentUrl = trim((string)($input['agentUrl'] ?? ''));
+            $signatureMetadataRaw = $input['signatureMetadata'] ?? ($input['signature_metadata'] ?? null);
+            $orderIdMetadataTest = trim((string)($input['order_id_metadata_test'] ?? ''));
         } else {
             $this->respondJson(405, ['error' => 'method_not_allowed']);
             return;
@@ -126,6 +130,12 @@ final class SignerApp
             return;
         }
 
+        [$signatureMetadata, $metadataError] = $this->buildSignatureMetadata($signatureMetadataRaw, $orderIdMetadataTest);
+        if ($metadataError) {
+            $this->respondJson(400, ['error' => 'invalid_signature_metadata']);
+            return;
+        }
+
         if ($deviceId !== '') {
             [$kid, $privatePemPath] = $this->ensureDeviceKey($this->keysDir, $deviceId);
         } else {
@@ -152,7 +162,7 @@ final class SignerApp
         $paramsArray = [
             'signature_uid' => $this->generateSignatureUid(),
             'signature_timestamp' => $this->generateSignatureTimestamp(),
-            'signature_metadata' => base64_encode(json_encode(['todo'])),
+            'signature_metadata' => $signatureMetadata,
             'instructions' => $instructions,
             'kid' => $kid,
             'exp' => (string)$exp,
@@ -178,6 +188,7 @@ final class SignerApp
                 'device_port' => $devicePort,
                 'device_id' => $deviceId,
                 'debug' => $debug ? '1' : '0',
+                'order_id_metadata_test' => $orderIdMetadataTest,
             ]);
             return;
         }
@@ -235,6 +246,7 @@ final class SignerApp
             $devicePort = $this->defaultDevicePort;
         }
         $deviceId = (string)($_GET['deviceId'] ?? '');
+        $orderIdMetadataTest = (string)($_GET['order_id_metadata_test'] ?? '');
         $debugChecked = (string)($_GET['debug'] ?? '1');
         $agentUrl = (string)($_GET['agentUrl'] ?? 'http://localhost:34279/api/send');
 
@@ -268,6 +280,7 @@ final class SignerApp
         echo '<label>deviceIp (IP or host) <input name="deviceIp" value="' . htmlspecialchars($deviceIp, ENT_QUOTES, 'UTF-8') . '"></label><br>';
         echo '<label>devicePort <input name="devicePort" value="' . htmlspecialchars($devicePort, ENT_QUOTES, 'UTF-8') . '"></label><br>';
         echo '<label>deviceId <input name="deviceId" value="' . htmlspecialchars($deviceId, ENT_QUOTES, 'UTF-8') . '"></label><br>';
+        echo '<label>order_id_metadata_test <input name="order_id_metadata_test" value="' . htmlspecialchars($orderIdMetadataTest, ENT_QUOTES, 'UTF-8') . '"></label><br>';
         echo '<label><input type="checkbox" name="debug" value="1"' . ($debugChecked !== '0' ? ' checked' : '') . ' id="debugToggle"> debug</label><br>';
         echo '<div id="agentUrlRow">';
         echo '<label>agentUrl <input name="agentUrl" size="40" value="' . htmlspecialchars($agentUrl, ENT_QUOTES, 'UTF-8') . '"></label><br>';
@@ -338,6 +351,7 @@ final class SignerApp
                 'deviceIp' => (string)($details['device_ip'] ?? ''),
                 'devicePort' => (string)($details['device_port'] ?? ''),
                 'deviceId' => (string)($details['device_id'] ?? ''),
+                'order_id_metadata_test' => (string)($details['order_id_metadata_test'] ?? ''),
                 'debug' => (string)($details['debug'] ?? '1'),
                 'agentUrl' => (string)($details['agent_url'] ?? ''),
             ];
@@ -420,6 +434,50 @@ final class SignerApp
             }
         }
         return $out;
+    }
+
+    /**
+     * @return array{0:string,1:bool} [signatureMetadataBase64, hasError]
+     */
+    private function buildSignatureMetadata(mixed $rawInput, string $orderIdMetadataTest): array
+    {
+        $orderIdMetadataTest = trim($orderIdMetadataTest);
+        if ($rawInput === null || $rawInput === '') {
+            if ($orderIdMetadataTest === '') {
+                return ['', false];
+            }
+            $json = json_encode(['order_id' => $orderIdMetadataTest], JSON_UNESCAPED_SLASHES);
+            return [$json === false ? '' : base64_encode($json), $json === false];
+        }
+
+        $value = $rawInput;
+        if (is_string($value)) {
+            $value = trim($value);
+            if ($value === '') {
+                return ['', false];
+            }
+            $decoded = json_decode($value, true);
+            if (json_last_error() === JSON_ERROR_NONE) {
+                $json = json_encode($decoded, JSON_UNESCAPED_SLASHES);
+                return [$json === false ? '' : base64_encode($json), $json === false];
+            }
+            $decodedBase64 = $this->decodeBase64($value);
+            if ($decodedBase64 !== null) {
+                $decoded = json_decode($decodedBase64, true);
+                if (json_last_error() === JSON_ERROR_NONE) {
+                    $json = json_encode($decoded, JSON_UNESCAPED_SLASHES);
+                    return [$json === false ? '' : base64_encode($json), $json === false];
+                }
+            }
+            return ['', true];
+        }
+
+        if (is_array($value)) {
+            $json = json_encode($value, JSON_UNESCAPED_SLASHES);
+            return [$json === false ? '' : base64_encode($json), $json === false];
+        }
+
+        return ['', true];
     }
 
     /** @return list<string>|null */
