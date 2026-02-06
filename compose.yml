@@ -8,6 +8,8 @@ services:
       - "8080:80"
     environment:
       APP_ENV: dev
+#      TEST_DEFAULT_DEVICE_PORT: 9000
+#      TEST_DEFAULT_DEVICE_IP: tcp-echo
     volumes:
       - .:/var/www/html
       - keys:/keys

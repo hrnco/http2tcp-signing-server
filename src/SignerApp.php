@@ -146,34 +146,34 @@ final class SignerApp
             json_encode($instructionsPayload, JSON_UNESCAPED_SLASHES)
         );
 
-        $exp = time() + max(1, $this->ttlSeconds);
+        $exp = $this->generateExpirationTimestamp();
         $nonce = $this->base64urlEncode(random_bytes(16));
 
-        $params = $this->buildParamsString([
+        $paramsArray = [
+            'signature_uid' => $this->generateSignatureUid(),
+            'signature_timestamp' => $this->generateSignatureTimestamp(),
+            'signature_metadata' => base64_encode(json_encode(['todo'])),
             'instructions' => $instructions,
             'kid' => $kid,
             'exp' => (string)$exp,
             'nonce' => $nonce,
-        ]);
+        ];
+
+        $params = $this->buildParamsString($paramsArray);
 
         $sig = $this->opensslSignEd25519($params, $privatePemPath);
-        $response = $params . '&sig=' . rawurlencode($sig);
+        $request = $params . '&sig=' . rawurlencode($sig);
 
         if ($debug) {
             header('Content-Type: text/html; charset=utf-8');
-            $this->renderDebug($response, [
+            $this->renderDebug($request, [
                 'instructions_url_decoded' => $instructionsPayload,
-                'instructions_url_base64' => $instructions,
-                'kid' => $kid,
-                'exp' => $exp,
-                'nonce' => $nonce,
                 'sig_base64url' => $sig,
-                'params' => $params,
+                'params' => $paramsArray,
                 'agent_url' => $agentUrl,
                 'payload_type' => $payloadHexList !== [] ? 'hex' : ($payloadBase64Raw !== '' ? 'base64' : 'ascii'),
                 'payload_hex' => $payloadHexList,
                 'payload_ascii' => $payloadAsciiList,
-                'payload_base64' => $payloadBase64List,
                 'device_ip' => $deviceIp,
                 'device_port' => $devicePort,
                 'device_id' => $deviceId,
@@ -183,7 +183,11 @@ final class SignerApp
         }
 
         header('Content-Type: text/plain; charset=utf-8');
-        echo $response;
+        echo json_encode([
+            'signature_uid' => $paramsArray['signature_uid'],
+            'signature_timestamp' => $paramsArray['signature_timestamp'],
+            'request' => $request
+        ]);
     }
 
     private function sendCors(): void
@@ -684,5 +688,23 @@ final class SignerApp
             $this->respondJson(500, ['error' => 'command_failed']);
             exit;
         }
+    }
+
+    private function generateSignatureUid()
+    {
+        return uniqid('', true);
+    }
+
+    private function generateSignatureTimestamp(): string
+    {
+        $tz = new DateTimeZone(date_default_timezone_get());
+        return (new DateTimeImmutable('now', $tz))->format('c');
+    }
+
+    private function generateExpirationTimestamp()
+    {
+        $tz = new DateTimeZone(date_default_timezone_get());
+        $exp = time() + max(1, $this->ttlSeconds);
+        return (new DateTimeImmutable('@' . $exp))->setTimezone($tz)->format('c');
     }
 }
