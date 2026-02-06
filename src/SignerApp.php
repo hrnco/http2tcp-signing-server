@@ -113,7 +113,7 @@ final class SignerApp
         } else {
             $payloadBase64List = $this->asciiListToBase64List($payloadAsciiList);
         }
-        if (!filter_var($deviceIp, FILTER_VALIDATE_IP)) {
+        if (!$this->isValidDeviceHost($deviceIp)) {
             $this->respondJson(400, ['error' => 'invalid_device_ip']);
             return;
         }
@@ -261,7 +261,7 @@ final class SignerApp
         echo '<button type="button" id="addHexRow">+ add hex</button> ';
         echo '<button type="button" id="removeHexRow">- remove hex</button><br>';
         echo '</div>';
-        echo '<label>deviceIp <input name="deviceIp" value="' . htmlspecialchars($deviceIp, ENT_QUOTES, 'UTF-8') . '"></label><br>';
+        echo '<label>deviceIp (IP or host) <input name="deviceIp" value="' . htmlspecialchars($deviceIp, ENT_QUOTES, 'UTF-8') . '"></label><br>';
         echo '<label>devicePort <input name="devicePort" value="' . htmlspecialchars($devicePort, ENT_QUOTES, 'UTF-8') . '"></label><br>';
         echo '<label>deviceId <input name="deviceId" value="' . htmlspecialchars($deviceId, ENT_QUOTES, 'UTF-8') . '"></label><br>';
         echo '<label><input type="checkbox" name="debug" value="1"' . ($debugChecked !== '0' ? ' checked' : '') . ' id="debugToggle"> debug</label><br>';
@@ -478,6 +478,39 @@ final class SignerApp
             return $fileEnv[$key];
         }
         return $default;
+    }
+
+    private function isValidDeviceHost(string $value): bool
+    {
+        if ($value === '') {
+            return false;
+        }
+        if (filter_var($value, FILTER_VALIDATE_IP)) {
+            return true;
+        }
+        return $this->isValidHostname($value);
+    }
+
+    private function isValidHostname(string $value): bool
+    {
+        $value = rtrim($value, '.');
+        if ($value === '') {
+            return false;
+        }
+        if (strlen($value) > 253) {
+            return false;
+        }
+        $labels = explode('.', $value);
+        foreach ($labels as $label) {
+            $len = strlen($label);
+            if ($len < 1 || $len > 63) {
+                return false;
+            }
+            if (!preg_match('/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$/', $label)) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private function ensureDefaultKey(string $keysDir): array
