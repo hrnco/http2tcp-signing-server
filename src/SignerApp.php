@@ -182,7 +182,7 @@ final class SignerApp
             return;
         }
 
-        header('Content-Type: text/plain; charset=utf-8');
+        header('Content-Type: text/json; charset=utf-8');
         echo json_encode([
             'signature_uid' => $paramsArray['signature_uid'],
             'signature_timestamp' => $paramsArray['signature_timestamp'],
