@@ -506,7 +506,7 @@ final class SignerApp
             if ($len < 1 || $len > 63) {
                 return false;
             }
-            if (!preg_match('/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$/', $label)) {
+            if (!preg_match('/^[A-Za-z0-9](?:[A-Za-z0-9-_]{0,61}[A-Za-z0-9])?$/', $label)) {
                 return false;
             }
         }
