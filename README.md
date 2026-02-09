@@ -17,7 +17,7 @@ Cloud/Web App -> Signing Server -> Browser (user) -> Local Agent -> TCP Device (
 - **Output from server:** serialized parameters `instructions`, `sig`, `kid`, `exp`, `nonce`.
 - **Flow:**
   1) call the server (`http://http2tcp-server/api/sign`) to get signed params,
-  2) forward those params to the agent (`http://localhost:34279/api/send`) via GET or POST,
+  2) forward those params to the agent (default `http://localhost:34279/api/send`, override via `TEST_DEFAULT_AGENT_URL`) via GET or POST,
   3) read JSON response.
 
 ## Minimal API snippets (multi-language)
@@ -125,7 +125,7 @@ const params = await fetch("http://http2tcp-server/api/sign", {
   // `params` is the signed response returned by your server (/api/sign); inject it into the page
   // (e.g., templated server-side, fetched via XHR, or passed via postMessage from your app shell).
   // Use the `params` produced by any snippet above.
-  const agentBase = 'http://localhost:34279/api/send';
+  const agentBase = 'http://localhost:34279/api/send'; // override via TEST_DEFAULT_AGENT_URL
   const params = window.signedParams; // e.g., "instructions=...&sig=...&kid=...&exp=...&nonce=..."
 
   // POST to local agent

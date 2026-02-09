@@ -13,6 +13,8 @@ final class SignerApp
     private string $defaultPayloadType;
     private string $defaultDeviceIp;
     private string $defaultDevicePort;
+    private string $defaultDeviceModel;
+    private string $defaultAgentUrl;
 
     public function __construct(string $envPath)
     {
@@ -28,6 +30,8 @@ final class SignerApp
         $this->defaultPayloadType = $defaultPayloadTypeRaw === 'hex' ? 'hex' : 'ascii';
         $this->defaultDeviceIp = trim((string)$this->getEnvValue($env, 'TEST_DEFAULT_DEVICE_IP', '192.168.1.50'));
         $this->defaultDevicePort = trim((string)$this->getEnvValue($env, 'TEST_DEFAULT_DEVICE_PORT', '9100'));
+        $this->defaultDeviceModel = trim((string)$this->getEnvValue($env, 'TEST_DEFAULT_DEVICE_MODEL', 'echo-test'));
+        $this->defaultAgentUrl = trim((string)$this->getEnvValue($env, 'TEST_DEFAULT_AGENT_URL', 'http://localhost:34279/api/send'));
     }
 
     public function handle(): void
@@ -61,6 +65,7 @@ final class SignerApp
             $agentUrl = trim((string)($_GET['agentUrl'] ?? ''));
             $signatureMetadataRaw = $_GET['signatureMetadata'] ?? ($_GET['signature_metadata'] ?? null);
             $orderIdMetadataTest = trim((string)($_GET['order_id_metadata_test'] ?? ''));
+            $deviceModel = trim((string)($_GET['device_model'] ?? ''));
         } elseif ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $inputRaw = file_get_contents('php://input') ?: '';
             $input = json_decode($inputRaw, true);
@@ -78,9 +83,13 @@ final class SignerApp
             $agentUrl = trim((string)($input['agentUrl'] ?? ''));
             $signatureMetadataRaw = $input['signatureMetadata'] ?? ($input['signature_metadata'] ?? null);
             $orderIdMetadataTest = trim((string)($input['order_id_metadata_test'] ?? ''));
+            $deviceModel = trim((string)($input['device_model'] ?? ''));
         } else {
             $this->respondJson(405, ['error' => 'method_not_allowed']);
             return;
+        }
+        if ($agentUrl === '') {
+            $agentUrl = $this->defaultAgentUrl;
         }
         $debug = $debug && $this->appEnv === 'dev';
 
@@ -152,6 +161,9 @@ final class SignerApp
         if ($deviceId !== '') {
             $instructionsPayload['deviceId'] = $deviceId;
         }
+        if ($deviceModel !== '') {
+            $instructionsPayload['device_model'] = $deviceModel;
+        }
         $instructions = $this->base64urlEncode(
             json_encode($instructionsPayload, JSON_UNESCAPED_SLASHES)
         );
@@ -187,8 +199,10 @@ final class SignerApp
                 'device_ip' => $deviceIp,
                 'device_port' => $devicePort,
                 'device_id' => $deviceId,
+                'device_model' => $deviceModel,
                 'debug' => $debug ? '1' : '0',
                 'order_id_metadata_test' => $orderIdMetadataTest,
+                'request_params' => $_SERVER['REQUEST_METHOD'] === 'GET' ? $_GET : $input,
             ]);
             return;
         }
@@ -216,7 +230,14 @@ final class SignerApp
         }
 
         header('Content-Type: text/html; charset=utf-8');
-        echo '<!doctype html><html><head><meta charset="utf-8"><title>http2tcp-signing-server</title></head><body>';
+        echo '<!doctype html><html><head><meta charset="utf-8"><title>http2tcp-signing-server</title>';
+        echo '<style>';
+        echo 'body{font-family:Arial,Helvetica,sans-serif;margin:24px;line-height:1.45;}';
+        echo 'label{display:block;margin:6px 0 2px;}';
+        echo 'input,select{padding:4px 6px;border:1px solid #c8c8c8;border-radius:4px;}';
+        echo '.help{display:block;color:#5b5b5b;font-size:12px;margin:2px 0 8px;}';
+        echo '</style>';
+        echo '</head><body>';
         echo '<h1>http2tcp-signing-server</h1>';
         echo '<p>Server is running. You can use GET or POST on <code>/api/sign</code>.</p>';
         echo '<h2>Quick test</h2>';
@@ -247,8 +268,15 @@ final class SignerApp
         }
         $deviceId = (string)($_GET['deviceId'] ?? '');
         $orderIdMetadataTest = (string)($_GET['order_id_metadata_test'] ?? '');
+        $deviceModel = (string)($_GET['device_model'] ?? '');
         $debugChecked = (string)($_GET['debug'] ?? '1');
-        $agentUrl = (string)($_GET['agentUrl'] ?? 'http://localhost:34279/api/send');
+        $agentUrl = trim((string)($_GET['agentUrl'] ?? ''));
+        if ($agentUrl === '') {
+            $agentUrl = $this->defaultAgentUrl;
+        }
+        if ($deviceModel === '') {
+            $deviceModel = $this->defaultDeviceModel;
+        }
 
         echo '<form method="get" action="/api/sign">';
         echo '<label>payloadType ';
@@ -281,6 +309,8 @@ final class SignerApp
         echo '<label>devicePort <input name="devicePort" value="' . htmlspecialchars($devicePort, ENT_QUOTES, 'UTF-8') . '"></label><br>';
         echo '<label>deviceId <input name="deviceId" value="' . htmlspecialchars($deviceId, ENT_QUOTES, 'UTF-8') . '"></label><br>';
         echo '<label>order_id_metadata_test <input name="order_id_metadata_test" value="' . htmlspecialchars($orderIdMetadataTest, ENT_QUOTES, 'UTF-8') . '"></label><br>';
+        echo '<label>tcp device model <input name="device_model" value="' . htmlspecialchars($deviceModel, ENT_QUOTES, 'UTF-8') . '"></label>';
+        echo '<span class="help">Optional field. Sending works without it; defining the model helps analyses such as detecting the end of a TCP device response.</span>';
         echo '<label><input type="checkbox" name="debug" value="1"' . ($debugChecked !== '0' ? ' checked' : '') . ' id="debugToggle"> debug</label><br>';
         echo '<div id="agentUrlRow">';
         echo '<label>agentUrl <input name="agentUrl" size="40" value="' . htmlspecialchars($agentUrl, ENT_QUOTES, 'UTF-8') . '"></label><br>';
@@ -346,22 +376,27 @@ final class SignerApp
 
         $agentUrl = trim((string)($details['agent_url'] ?? ''));
         if ($agentUrl !== '') {
-            $editParams = [
-                'payloadType' => (string)($details['payload_type'] ?? 'ascii'),
-                'deviceIp' => (string)($details['device_ip'] ?? ''),
-                'devicePort' => (string)($details['device_port'] ?? ''),
-                'deviceId' => (string)($details['device_id'] ?? ''),
-                'order_id_metadata_test' => (string)($details['order_id_metadata_test'] ?? ''),
-                'debug' => (string)($details['debug'] ?? '1'),
-                'agentUrl' => (string)($details['agent_url'] ?? ''),
-            ];
-            $payloadType = (string)($details['payload_type'] ?? 'ascii');
-            if ($payloadType === 'hex') {
-                $editParams['payloadHex'] = $details['payload_hex'] ?? [];
-            } elseif ($payloadType === 'ascii') {
-                $editParams['payloadAscii'] = $details['payload_ascii'] ?? [];
+            $requestParams = $details['request_params'] ?? [];
+            if (!is_array($requestParams)) {
+                $requestParams = [];
             }
-            $editQuery = http_build_query($editParams);
+            $editParams = [
+                'payloadType' => (string)($requestParams['payloadType'] ?? ($details['payload_type'] ?? 'ascii')),
+                'deviceIp' => (string)($requestParams['deviceIp'] ?? ($details['device_ip'] ?? '')),
+                'devicePort' => (string)($requestParams['devicePort'] ?? ($details['device_port'] ?? '')),
+                'deviceId' => (string)($requestParams['deviceId'] ?? ($details['device_id'] ?? '')),
+                'order_id_metadata_test' => (string)($requestParams['order_id_metadata_test'] ?? ($details['order_id_metadata_test'] ?? '')),
+                'device_model' => (string)($requestParams['device_model'] ?? ($details['device_model'] ?? '')),
+                'debug' => (string)($requestParams['debug'] ?? ($details['debug'] ?? '1')),
+                'agentUrl' => (string)($requestParams['agentUrl'] ?? ($details['agent_url'] ?? '')),
+            ];
+            $payloadType = (string)($requestParams['payloadType'] ?? ($details['payload_type'] ?? 'ascii'));
+            if ($payloadType === 'hex') {
+                $editParams['payloadHex'] = $requestParams['payloadHex'] ?? ($details['payload_hex'] ?? []);
+            } elseif ($payloadType === 'ascii') {
+                $editParams['payloadAscii'] = $requestParams['payloadAscii'] ?? ($details['payload_ascii'] ?? []);
+            }
+            $editQuery = http_build_query($editParams, '', '&', PHP_QUERY_RFC3986);
             $editUrl = '/?' . $editQuery;
             $safeEditUrl = htmlspecialchars($editUrl, ENT_QUOTES, 'UTF-8');
 
